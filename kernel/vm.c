@@ -437,3 +437,33 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+// Return 0 on success, -1 on error.
+int
+vmprint_level(pagetable_t pagetable, int level) {
+  if (level < 0 || level > 2) {
+    return -1;
+  }
+  int num_of_ptes = PGSIZE / sizeof(uint64);
+  char message[9] = ".. .. ..";
+  message[2 + level * 3] = 0;
+  for (int i = 0; i < num_of_ptes; i++) {
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V){
+      uint64 curr_pa = PTE2PA(pte);
+      printf("%s%d: pte %p pa %p\n", message, i, (void*)pte, (void*) curr_pa);
+      if ((pte & (PTE_R|PTE_W|PTE_X)) == 0) {
+        vmprint_level((pagetable_t)curr_pa, level + 1);
+      }
+    }
+  }
+  return 0;
+}
+
+void
+vmprint(pagetable_t pagetable) 
+{ 
+  if (vmprint_level(pagetable, 0) < 0) {
+    panic("vmprint_level error");
+  }
+}
