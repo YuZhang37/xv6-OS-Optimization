@@ -20,6 +20,8 @@ static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
 
+extern pagetable_t kernel_pagetable;
+
 // helps ensure that wakeups of wait()ing
 // parents are not lost. helps obey the
 // memory model when using p->parent.
@@ -40,6 +42,20 @@ proc_mapstacks(pagetable_t kpgtbl)
       panic("kalloc");
     uint64 va = KSTACK((int) (p - proc));
     kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  }
+}
+
+
+void
+proc_setstacks(pagetable_t kpgtbl, pagetable_t kpgtbl2)
+{
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    uint64 va = KSTACK((int) (p - proc));
+    pte_t* pte_addr = walk(kpgtbl, va, 0);
+    if(pte_addr == 0)
+      panic("proc_setstacks");
+    kvmmap(kpgtbl2, va, (uint64)PTE2PA(*pte_addr), PGSIZE, PTE_R | PTE_W);
   }
 }
 
@@ -132,6 +148,11 @@ found:
     return 0;
   }
 
+  // Allocate a kernel page table 
+  p->kernel_pagetable = kvmmake();
+
+  proc_setstacks(kernel_pagetable, p->kernel_pagetable);
+  // proc_mapstacks(p->kernel_pagetable);
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -160,6 +181,8 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  if (p->kernel_pagetable)
+    proc_free_kernel_pagetable(p->kernel_pagetable);
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -213,6 +236,10 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
   uvmfree(pagetable, sz);
+}
+
+void proc_free_kernel_pagetable(pagetable_t pagetable) {
+  freewalk_pages(pagetable);
 }
 
 // a user program that calls exec("/init")
@@ -460,8 +487,9 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        switch_kernel_pagetable(p->kernel_pagetable);
         swtch(&c->context, &p->context);
-
+        switch_kernel_pagetable(kernel_pagetable);
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;

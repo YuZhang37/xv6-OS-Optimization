@@ -42,9 +42,6 @@ kvmmake(void)
   // map the trampoline for trap entry/exit to
   // the highest virtual address in the kernel.
   kvmmap(kpgtbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
-
-  // allocate and map a kernel stack for each process.
-  proc_mapstacks(kpgtbl);
   
   return kpgtbl;
 }
@@ -54,6 +51,8 @@ void
 kvminit(void)
 {
   kernel_pagetable = kvmmake();
+  // allocate and map a kernel stack for each process.
+  proc_mapstacks(kernel_pagetable);
 }
 
 // Switch h/w page table register to the kernel's page table,
@@ -62,6 +61,18 @@ void
 kvminithart()
 {
   // wait for any previous writes to the page table memory to finish.
+  sfence_vma();
+
+  w_satp(MAKE_SATP(kernel_pagetable));
+
+  // flush stale entries from the TLB.
+  sfence_vma();
+}
+
+void
+switch_kernel_pagetable(pagetable_t kernel_pagetable) 
+{
+ // wait for any previous writes to the page table memory to finish.
   sfence_vma();
 
   w_satp(MAKE_SATP(kernel_pagetable));
@@ -282,6 +293,26 @@ freewalk(pagetable_t pagetable)
     } else if(pte & PTE_V){
       panic("freewalk: leaf");
     }
+  }
+  kfree((void*)pagetable);
+}
+
+// Recursively free page-table pages and leaf pages.
+// not freeing physical memory of pa of the leaf pages 
+void
+freewalk_pages(pagetable_t pagetable)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if((pte & PTE_V) == 0)
+      continue;
+    if (PTE_FLAGS(pte) == PTE_V) {
+      // this PTE points to a lower-level page table.
+      uint64 child = PTE2PA(pte);
+      freewalk_pages((pagetable_t)child);
+    }
+    pagetable[i] = 0;
   }
   kfree((void*)pagetable);
 }
