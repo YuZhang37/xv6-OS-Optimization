@@ -36,7 +36,6 @@ copyin(char *s)
 
   for(int ai = 0; ai < 2; ai++){
     uint64 addr = addrs[ai];
-    
     int fd = open("copyin1", O_CREATE|O_WRONLY);
     if(fd < 0){
       printf("open(copyin1) failed\n");
@@ -2070,6 +2069,7 @@ sbrkmuch(char *s)
   a = sbrk(0);
   amt = BIG - (uint64)a;
   p = sbrk(amt);
+  printf("a: %p, p: %p", a, p);
   if (p != a) {
     printf("%s: sbrk test failed to grow big address space; enough phys mem?\n", s);
     exit(1);

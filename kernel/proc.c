@@ -149,9 +149,7 @@ found:
   }
 
   // Allocate a kernel page table 
-  p->kernel_pagetable = kvmmake();
-
-  proc_setstacks(kernel_pagetable, p->kernel_pagetable);
+  p->kernel_pagetable = user_kvmmake();
   // proc_mapstacks(p->kernel_pagetable);
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
@@ -268,6 +266,8 @@ userinit(void)
   // and data into it.
   uvmfirst(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  if (copy_pagetable_to_kernel(p->kernel_pagetable, p, 0, p->sz) < 0)
+    panic("userinit");
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -286,16 +286,30 @@ userinit(void)
 int
 growproc(int n)
 {
-  uint64 sz;
+  uint64 sz, old_sz;
   struct proc *p = myproc();
 
   sz = p->sz;
+  old_sz = p->sz;
+
   if(n > 0){
+    if (sz + n < sz || sz + n >= PLIC) {
+      return -1;
+    }
     if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
       return -1;
     }
+    if (copy_pagetable_to_kernel(p->kernel_pagetable, p, old_sz, sz) < 0) {
+      userkernel_unmap(p->kernel_pagetable, sz, old_sz);
+      uvmdealloc(p->pagetable, sz, old_sz);
+      return -1;
+    }
   } else if(n < 0){
+    if (sz + n > sz) {
+      return -1;
+    }
     sz = uvmdealloc(p->pagetable, sz, sz + n);
+    userkernel_unmap(p->kernel_pagetable, sz, sz + n);
   }
   p->sz = sz;
   return 0;
@@ -322,6 +336,13 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // set kernel page table in child.
+  if (copy_pagetable_to_kernel(np->kernel_pagetable, np, 0, np->sz) < 0) {
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);

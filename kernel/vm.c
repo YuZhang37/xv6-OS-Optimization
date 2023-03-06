@@ -3,6 +3,8 @@
 #include "memlayout.h"
 #include "elf.h"
 #include "riscv.h"
+#include "spinlock.h"
+#include "proc.h"
 #include "defs.h"
 #include "fs.h"
 
@@ -53,6 +55,14 @@ kvminit(void)
   kernel_pagetable = kvmmake();
   // allocate and map a kernel stack for each process.
   proc_mapstacks(kernel_pagetable);
+}
+
+pagetable_t
+user_kvmmake(void)
+{ 
+  pagetable_t kpgtbl = kvmmake();
+  proc_setstacks(kernel_pagetable, kpgtbl);
+  return kpgtbl;
 }
 
 // Switch h/w page table register to the kernel's page table,
@@ -113,6 +123,14 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
   return &pagetable[PX(0, va)];
 }
 
+// void
+// release_pagetables_page(pagetable_t pagetable, uint oldsz, uint newsz) 
+// {
+//   uint64 aligned_start_va = PROUNDUP(oldsz);
+//   uint64 aligned_end_va = PROUNDDOWN(newsz);
+
+// }
+
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
@@ -162,8 +180,10 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
   for(;;){
-    if((pte = walk(pagetable, a, 1)) == 0)
+    if((pte = walk(pagetable, a, 1)) == 0) {
       return -1;
+    }
+      
     if(*pte & PTE_V)
       panic("mappages: remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
@@ -188,8 +208,10 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     panic("uvmunmap: not aligned");
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0)
+    if((pte = walk(pagetable, a, 0)) == 0) {
       panic("uvmunmap: walk");
+    }
+      
     if((*pte & PTE_V) == 0)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
@@ -275,6 +297,34 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   }
 
   return newsz;
+}
+
+uint64
+userkernel_unmap(pagetable_t pagetable, uint64 oldsz, uint64 newsz) 
+{
+  if (newsz >= oldsz)
+    return oldsz;
+  clear_pte(pagetable, newsz, oldsz);
+  return newsz;
+}
+
+void
+clear_pte(pagetable_t pagetable, uint64 newsz, uint64 oldsz)
+{
+  int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
+  int aligned_start_va = PGROUNDUP(newsz);
+  uint64 a;
+  pte_t *pte;
+
+  for(a = aligned_start_va; a < aligned_start_va + npages*PGSIZE; a += PGSIZE){
+    if((pte = walk(pagetable, a, 0)) == 0)
+      continue;
+    if((*pte & PTE_V) == 0)
+      continue;
+    if(PTE_FLAGS(*pte) == PTE_V)
+      continue;
+    *pte = 0;
+  }
 }
 
 // Recursively free page-table pages.
@@ -407,23 +457,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
-  uint64 n, va0, pa0;
-
-  while(len > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > len)
-      n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
-
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
-  return 0;
+  return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -433,40 +467,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
-  uint64 n, va0, pa0;
-  int got_null = 0;
-
-  while(got_null == 0 && max > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > max)
-      n = max;
-
-    char *p = (char *) (pa0 + (srcva - va0));
-    while(n > 0){
-      if(*p == '\0'){
-        *dst = '\0';
-        got_null = 1;
-        break;
-      } else {
-        *dst = *p;
-      }
-      --n;
-      --max;
-      p++;
-      dst++;
-    }
-
-    srcva = va0 + PGSIZE;
-  }
-  if(got_null){
-    return 0;
-  } else {
-    return -1;
-  }
+  return copyinstr_new(pagetable, dst, srcva, max);
 }
 
 // Return 0 on success, -1 on error.
@@ -497,4 +498,26 @@ vmprint(pagetable_t pagetable)
   if (vmprint_level(pagetable, 0) < 0) {
     panic("vmprint_level error");
   }
+}
+
+
+// Returns 0 on success, -1 on failure.
+int
+copy_pagetable_to_kernel(pagetable_t kpgtbl, struct proc *p, uint64 start, uint64 end) 
+{
+  if (end >= PLIC)
+    return -1;
+  for (uint64 va = PGROUNDDOWN(start); va < PGROUNDUP(end); va += PGSIZE) {
+    pte_t *pte_user = walk(p->pagetable, va, 0);
+    if (pte_user == 0) {
+      return -1;
+    }
+    pte_t *pte_kernel = walk(kpgtbl, va, 1);
+    if (pte_kernel == 0) {
+      return -1;
+    }
+    pte_t entry = PTE_CLEAR_FLAGS(*pte_user) | PTE_FLAGS_UNSET_U(*pte_user);
+    *pte_kernel = entry;
+  }
+  return 0;
 }

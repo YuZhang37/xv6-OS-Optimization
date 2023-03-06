@@ -29,6 +29,7 @@ exec(char *path, char **argv)
   struct inode *ip;
   struct proghdr ph;
   pagetable_t pagetable = 0, oldpagetable;
+  pagetable_t proc_kernel_pagetable = 0, old_proc_kernel_pagetable;
   struct proc *p = myproc();
 
   begin_op();
@@ -82,6 +83,10 @@ exec(char *path, char **argv)
   uint64 sz1;
   if((sz1 = uvmalloc(pagetable, sz, sz + 2*PGSIZE, PTE_W)) == 0)
     goto bad;
+
+  if (sz1 >= PLIC)
+    goto bad;
+
   sz = sz1;
   uvmclear(pagetable, sz-2*PGSIZE);
   sp = sz;
@@ -128,6 +133,16 @@ exec(char *path, char **argv)
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
 
+  // Allocate a kernel page table 
+  printf("exec\n");
+  proc_kernel_pagetable = user_kvmmake();
+  old_proc_kernel_pagetable = p->kernel_pagetable;
+  if (copy_pagetable_to_kernel(proc_kernel_pagetable, p, 0, p->sz) < 0)
+    goto bad;
+  p->kernel_pagetable = proc_kernel_pagetable;
+  switch_kernel_pagetable(p->kernel_pagetable);
+  proc_free_kernel_pagetable(old_proc_kernel_pagetable);
+
   if (p->pid == 1) {
     vmprint(p->pagetable);
   }
@@ -139,6 +154,9 @@ exec(char *path, char **argv)
   if(ip){
     iunlockput(ip);
     end_op();
+  }
+  if (proc_kernel_pagetable) {
+    proc_free_kernel_pagetable(proc_kernel_pagetable);
   }
   return -1;
 }

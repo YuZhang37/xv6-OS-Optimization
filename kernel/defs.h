@@ -88,6 +88,7 @@ void            exit(int);
 int             fork(void);
 int             growproc(int);
 void            proc_mapstacks(pagetable_t);
+void            proc_setstacks(pagetable_t, pagetable_t);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
 void            proc_free_kernel_pagetable(pagetable_t);
@@ -159,6 +160,7 @@ int             uartgetc(void);
 
 // vm.c
 pagetable_t     kvmmake(void);
+pagetable_t     user_kvmmake(void);
 void            kvminit(void);
 void            kvminithart(void);
 void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
@@ -170,6 +172,8 @@ uint64          uvmdealloc(pagetable_t, uint64, uint64);
 int             uvmcopy(pagetable_t, pagetable_t, uint64);
 void            uvmfree(pagetable_t, uint64);
 void            uvmunmap(pagetable_t, uint64, uint64, int);
+uint64          userkernel_unmap(pagetable_t, uint64, uint64);
+void            clear_pte(pagetable_t, uint64, uint64);
 void            uvmclear(pagetable_t, uint64);
 pte_t *         walk(pagetable_t, uint64, int);
 uint64          walkaddr(pagetable_t, uint64);
@@ -179,6 +183,11 @@ int             copyinstr(pagetable_t, char *, uint64, uint64);
 void            vmprint(pagetable_t);
 void            switch_kernel_pagetable(pagetable_t);
 void            freewalk_pages(pagetable_t);
+int             copy_pagetable_to_kernel(pagetable_t, struct proc *, uint64, uint64);
+
+// vmcopyin.c
+int             copyin_new(pagetable_t, char *, uint64, uint64);
+int             copyinstr_new(pagetable_t, char *, uint64, uint64);
 
 // plic.c
 void            plicinit(void);
