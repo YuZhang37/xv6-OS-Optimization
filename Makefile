@@ -189,7 +189,6 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
-	$U/_self_test\
 
 
 
