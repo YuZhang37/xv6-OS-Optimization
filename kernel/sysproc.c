@@ -6,6 +6,8 @@
 #include "spinlock.h"
 #include "proc.h"
 
+extern int cfs;
+
 uint64
 sys_exit(void)
 {
@@ -90,4 +92,32 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64
+sys_nice(void)
+{
+  int new_nice; 
+  argint(0, &new_nice);
+  struct proc *p = myproc();
+  if (new_nice >= -20 && new_nice <= 19) {
+    p->nice = new_nice;
+    return new_nice;
+  }
+    
+  return p->nice;
+}
+
+uint64
+sys_startcfs(void)
+{
+  cfs = 1;
+  return 1;
+}
+
+uint64
+sys_stopcfs(void)
+{
+  cfs = 0;
+  return 1;
 }
