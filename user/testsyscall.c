@@ -32,7 +32,8 @@ int main() {
         }
     }
     //all processes run the same code as follows
-    printf("process (pid=%d) has nice = %d\n", getpid(),nice(-30)); int t=0;
+    printf("process (pid=%d) has nice = %d\n", getpid(),nice(-30)); 
+    int t=0;
     while(t++<2){
         double x=987654321.9;
         for(int i=0; i<100000000; i++){
