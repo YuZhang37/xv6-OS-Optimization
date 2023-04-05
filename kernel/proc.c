@@ -132,6 +132,13 @@ found:
     return 0;
   }
 
+  // Allocate a trapframe_proc page.
+  if((p->proc_trapframe = (struct trapframe *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -158,6 +165,9 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->proc_trapframe)
+    kfree((void*)p->proc_trapframe);
+  p->proc_trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -169,6 +179,8 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->ticks = 0;
+  p->handler = 0;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -204,6 +216,23 @@ proc_pagetable(struct proc *p)
 
   return pagetable;
 }
+
+void
+load_trapframe(void) {
+  struct proc *p = myproc();
+  for (uint64 i = 0; i < sizeof(struct trapframe) / sizeof(uint64); i++) {
+    p->trapframe[i] = p->proc_trapframe[i];
+  }
+}
+
+void
+move_trapframe(void) {
+  struct proc *p = myproc();
+  for (uint64 i = 0; i < sizeof(struct trapframe) / sizeof(uint64); i++) {
+    p->proc_trapframe[i] = p->trapframe[i];
+  }
+}
+
 
 // Free a process's page table, and free the
 // physical memory it refers to.
