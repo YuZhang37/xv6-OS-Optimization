@@ -111,7 +111,6 @@ kfree(void *pa)
   }
   release(&page_refs.lock);
 
-  // printf("free page: %p\n", pa);
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 

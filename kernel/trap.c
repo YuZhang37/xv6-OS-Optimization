@@ -84,10 +84,6 @@ usertrap(void)
       exit(-1);
     } 
     // valid writing address
-    // printf("allocating write_page:\n");
-    // printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-    // printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    // printf("previous allocated page: %p\n", walkaddr(myproc()->pagetable, faulting_va));
     if (allocate_write_page(myproc()->pagetable, faulting_va) == 0) {
       printf("allocate writing page failed.\n");
       printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
@@ -95,7 +91,6 @@ usertrap(void)
       setkilled(p);
       exit(-1);
     }
-    // printf("new allocated page: %p\n", walkaddr(myproc()->pagetable, faulting_va));
   
       
   } else if((which_dev = devintr()) != 0){

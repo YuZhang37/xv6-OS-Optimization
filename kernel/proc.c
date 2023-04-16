@@ -378,9 +378,6 @@ exit(int status)
   p->xstate = status;
   p->state = ZOMBIE;
 
-  // uint64 va = 0x2010;
-  // printf("name: %s, proc: %d, parent proc: %d, pa addr 2010: %p\n", 
-  //       p->name, p->pid, p->parent->pid, walkaddr(myproc()->pagetable, va));
   release(&wait_lock);
 
   // Jump into the scheduler, never to return.
