@@ -65,6 +65,39 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (r_scause() == 15) {
+    // write page fault
+    uint64 faulting_va = r_stval();
+    if (faulting_va >= MAXVA) {
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      setkilled(p);
+      exit(-1);
+    }
+    pte_t *pte = walk(myproc()->pagetable, faulting_va, 0);
+    if(pte == 0 || (*pte & PTE_V) == 0 || 
+       (*pte & PTE_U) == 0 || (*pte & PTE_PW) == 0) {
+      // not valid writing address
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      setkilled(p);
+      exit(-1);
+    } 
+    // valid writing address
+    // printf("allocating write_page:\n");
+    // printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+    // printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+    // printf("previous allocated page: %p\n", walkaddr(myproc()->pagetable, faulting_va));
+    if (allocate_write_page(myproc()->pagetable, faulting_va) == 0) {
+      printf("allocate writing page failed.\n");
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      setkilled(p);
+      exit(-1);
+    }
+    // printf("new allocated page: %p\n", walkaddr(myproc()->pagetable, faulting_va));
+  
+      
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
@@ -217,5 +250,28 @@ devintr()
   } else {
     return 0;
   }
+}
+
+
+uint64
+allocate_write_page(pagetable_t pagetable, uint64 va) 
+{
+  char *mem = kalloc();
+  if(mem == 0){
+    return 0;
+  }
+
+  pte_t *pte = walk(pagetable, va, 0);
+  uint64 pa = PTE2PA(*pte);
+  memmove(mem, (char*)pa, PGSIZE);
+
+  uint flags = PTE_FLAGS(*pte);
+  if (flags & PTE_PW) {
+    flags = CLEAR_PW(flags);
+    flags = flags | PTE_W;
+  }
+  kfree((void*)pa);
+  *pte = PA2PTE(mem) | flags;
+  return (uint64)mem;
 }
 

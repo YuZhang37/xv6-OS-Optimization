@@ -142,19 +142,26 @@ filetest()
       exit(-1);
     }
     if(pid == 0){
+      // printf("buf[0]: %d in child 0\n", buf[0]);
       sleep(1);
-      if(read(fds[0], buf, sizeof(i)) != sizeof(i)){
+      int rc = read(fds[0], buf, sizeof(i));
+      // printf("rc: %d, sizeof(i): %d\n", rc, sizeof(i));
+      if(rc != sizeof(i)){
         printf("error: read failed\n");
         exit(1);
       }
       sleep(1);
       int j = *(int*)buf;
+      // printf("i: %d, j: %d\n", i, j);
       if(j != i){
         printf("error: read the wrong value\n");
         exit(1);
       }
+      // printf("buf[0]: %d in child\n", buf[0]);
       exit(0);
     }
+    // printf("buf[0]: %d in parent\n", buf[0]);
+    // printf("buf: %p in child\n", buf);
     if(write(fds[1], &i, sizeof(i)) != sizeof(i)){
       printf("error: write failed\n");
       exit(-1);
@@ -168,7 +175,8 @@ filetest()
       exit(1);
     }
   }
-
+  // printf("buf[0]: %d\n", buf[0]);
+  // printf("buf: %p in parent\n", buf);
   if(buf[0] != 99){
     printf("error: child overwrote parent\n");
     exit(1);
@@ -182,7 +190,7 @@ main(int argc, char *argv[])
 {
   simpletest();
 
-  // check that the first simpletest() freed the physical memory.
+  // // check that the first simpletest() freed the physical memory.
   simpletest();
 
   threetest();
