@@ -48,7 +48,9 @@ def test_ph_fast():
     rate1 = re.findall(r' (\d+) puts.second$', out, re.MULTILINE)
     assert_equal(len(rate1), 1)
     rate1 = float(rate1[0])
+    print("rate1: ", rate1)
     rate2 = float(rate2[0])
+    print("rate2: ", rate2)
     # demand that 2 threads yield at least 1.25x the
     # throughput of a single thread.
     if rate2 < 1.25 * rate1:

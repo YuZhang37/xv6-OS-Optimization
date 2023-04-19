@@ -1,0 +1,7 @@
+thread a. insert(6, 3, **p, *n)
+thread b. insert(11, 4, **p, *n)
+there exists race condition:
+if a finishes first, the first element in p[1] is the new entry from a: which is entry(6, 3)->n
+and b finishes later, the first element will be overwritten with entry(11, 4)->n
+entry(6, 3) will be lost.
+
