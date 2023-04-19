@@ -322,6 +322,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     }
     *pte = PA2PTE(pa) | flags;
     if(mappages(new, i, PGSIZE, pa, flags) != 0){
+      uvmunmap(new, 0, i / PGSIZE, 1);
       return -1;
     }
     increment_ref_count(pa);
