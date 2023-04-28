@@ -63,21 +63,27 @@ testsymlink(void)
   printf("Start: test symlinks\n");
 
   mkdir("/testsymlink");
+  printf("Created testsymlink.\n");
 
   fd1 = open("/testsymlink/a", O_CREATE | O_RDWR);
   if(fd1 < 0) fail("failed to open a");
+  printf("opened /testsymlink/a.\n");
 
   r = symlink("/testsymlink/a", "/testsymlink/b");
+  printf("created symlink /testsymlink/b for /testsymlink/a.\n");
+
   if(r < 0)
     fail("symlink b -> a failed");
 
   if(write(fd1, buf, sizeof(buf)) != 4)
     fail("failed to write to a");
+  printf("wrote to /testsymlink/a.\n");
 
   if (stat_slink("/testsymlink/b", &st) != 0)
     fail("failed to stat b");
   if(st.type != T_SYMLINK)
     fail("b isn't a symlink");
+  printf("stat_slink /testsymlink/b.\n");
 
   fd2 = open("/testsymlink/b", O_RDWR);
   if(fd2 < 0)
@@ -85,14 +91,19 @@ testsymlink(void)
   read(fd2, &c, 1);
   if (c != 'a')
     fail("failed to read bytes from b");
+  printf("opened /testsymlink/b.\n");
 
   unlink("/testsymlink/a");
+  printf("unlinked /testsymlink/a.\n");
+
   if(open("/testsymlink/b", O_RDWR) >= 0)
     fail("Should not be able to open b after deleting a");
+  printf("opened /testsymlink/b.\n");
 
   r = symlink("/testsymlink/b", "/testsymlink/a");
   if(r < 0)
     fail("symlink a -> b failed");
+  printf("created symlink /testsymlink/a for /testsymlink/b.\n");
 
   r = open("/testsymlink/b", O_RDWR);
   if(r >= 0)

@@ -305,6 +305,7 @@ uint64
 sys_open(void)
 {
   char path[MAXPATH];
+  char target[MAXPATH]; // only used for symbolic link
   int fd, omode;
   struct file *f;
   struct inode *ip;
@@ -336,6 +337,35 @@ sys_open(void)
   }
 
   if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  if (ip->type == T_SYMLINK && ip->addrs[0] == 0) {
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+  uint count = 0;
+  while (ip->type == T_SYMLINK && (omode & O_NOFOLLOW) == 0) {
+    if(readi(ip, 0, (uint64)target, 0, ip->size) != ip->size) {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+    iunlockput(ip);
+    if((ip = namei(target)) == 0){
+      end_op();
+      return -1;
+    }
+    ilock(ip);
+    count++;
+    if (count >= 10) {
+      break;
+    }
+  }
+  if (count >= 10) {
     iunlockput(ip);
     end_op();
     return -1;
@@ -501,5 +531,32 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+// Create a path as a symbolic link to another file named target.
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  struct inode *ip;
+  uint path_len = argstr(1, path, MAXPATH);
+  uint target_len = argstr(0, target, MAXPATH);
+  if(target_len < 0 || path_len < 0)
+    return -1;
+  begin_op();
+  if((ip = namei(path)) != 0){
+    // path exists, error
+    end_op();
+    return -1;
+  }
+
+  ip = create(path, T_SYMLINK, 0, 0);
+
+  if(writei(ip, 0, (uint64)target, ip->size, target_len) != target_len)
+    panic("unlink: writei");
+  iunlockput(ip);
+  end_op();
+
   return 0;
 }
