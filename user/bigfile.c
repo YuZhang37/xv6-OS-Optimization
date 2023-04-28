@@ -52,6 +52,7 @@ main()
     }
   }
 
+  unlink("big.file");
   printf("bigfile done; ok\n"); 
 
   exit(0);
