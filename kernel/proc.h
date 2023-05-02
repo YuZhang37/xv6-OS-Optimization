@@ -89,6 +89,7 @@ struct vma {
   int len;
   int prot;
   int flags;
+  int free;
 };
 
 // Per-process state
@@ -115,5 +116,6 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   struct vma vmas[MAXMMAP];
+  struct vma *vmasp[MAXMMAP];
   uint vma_count;
 };

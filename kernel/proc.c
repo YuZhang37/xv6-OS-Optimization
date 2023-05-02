@@ -171,6 +171,7 @@ freeproc(struct proc *p)
   p->state = UNUSED;
   p->vma_count = 0;
   memset(&p->vmas, 0, sizeof(p->vmas));
+  memset(&p->vmasp, 0, sizeof(p->vmasp));
 }
 
 // Create a user page table for a given process, with no user memory,

@@ -192,14 +192,22 @@ filemmap(struct file *f, int len, int prot, int flags)
     printf("filemmap failed\n");
     return -1;
   }
+  int i = 0;
+  for (i = 0; i < MAXMMAP; i++) {
+    if (p->vmas[i].free == 0) {
+      p->vmasp[p->vma_count] = &p->vmas[i];
+      p->vmas[i].free = 1;
+      break;
+    }
+  }
   addr = p->sz;
-  p->vmas[p->vma_count].addr = addr;
+  p->vmasp[p->vma_count]->addr = addr;
   p->sz += len;
-  p->vmas[p->vma_count].f = f;
+  p->vmasp[p->vma_count]->f = f;
   filedup(f);
-  p->vmas[p->vma_count].len = len;
-  p->vmas[p->vma_count].prot = prot;
-  p->vmas[p->vma_count].flags = flags;
+  p->vmasp[p->vma_count]->len = len;
+  p->vmasp[p->vma_count]->prot = prot;
+  p->vmasp[p->vma_count]->flags = flags;
   p->vma_count++;
   release(&p->lock);
   return addr;
@@ -210,11 +218,54 @@ get_vma(uint64 va) {
   struct vma *vp = 0;
   struct proc *p = myproc();
   for (int i = 0; i < p->vma_count; i++) {
-    if (va >= p->vmas[i].addr && va < p->vmas[i].addr + p->vmas[i].len) {
-      vp = &p->vmas[i];
+    if (va >= p->vmasp[i]->addr && va < p->vmasp[i]->addr + p->vmasp[i]->len) {
+      vp = p->vmasp[i];
       break;
     }
   }
   return vp;
 }
 
+// int
+// remove_vma(struct vma *v)
+// {
+//   struct proc *p = myproc();
+//   lock(p->lock);
+//   if (v == &p->vmas[p->vma_count]) {
+//     p->vma_count == 0;
+//     unlock(p->lock);
+//     return 0;
+//   }
+//   int i = 0;
+//   for (i = 0; i < v->vma_count; i++) {
+//     if (v == &p->vmas[i]) {
+//       break;
+//     }
+//   }
+//   if (i == v->vma_count) {
+//     return -1;
+//   }
+//   struct 
+// }
+
+uint64
+fileunmap(uint64 addr, int len)
+{
+  // struct proc *p = myproc();
+  // struct vma *v = get_vma(addr);
+  // if (v == 0 || len > v->len || addr % PGSIZE != 0 || len % PGSIZE != 0) {
+  //   printf("invalid input.\n")
+  //   return -1;
+  // }
+  // if (addr == vma->addr && len == vma->len) {
+  //   remove_vma(v);
+  // }
+  // if (addr == vma->addr) {
+  //   vma->addr = addr + vma->len;
+  // } else {
+  //   vma->len = vma->len - len;
+  // }
+  // uvmunmap(p->pagetable, addr, len / PGSIZE, 1);
+  return -1;
+
+}

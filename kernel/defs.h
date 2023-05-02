@@ -35,6 +35,7 @@ int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
 uint64          filemmap(struct file *f, int len, int prot, int flags);
 struct vma *    get_vma(uint64 va);
+uint64          fileunmap(uint64 addr, int len);
 
 // fs.c
 void            fsinit(int);

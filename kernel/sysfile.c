@@ -526,6 +526,10 @@ sys_mmap(void)
 uint64
 sys_munmap(void)
 {
-  // int munmap(void *addr, uint length);
-  return -1;
+  // int munmap(void *addr, int length);
+  uint64 p;
+  int len;
+  argaddr(0, &p);
+  argint(1, &len);
+  return fileunmap(p, len);
 }
