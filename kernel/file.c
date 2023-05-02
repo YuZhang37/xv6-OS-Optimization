@@ -12,6 +12,7 @@
 #include "file.h"
 #include "stat.h"
 #include "proc.h"
+#include "fcntl.h"
 
 struct devsw devsw[NDEV];
 struct {
@@ -181,6 +182,47 @@ filewrite(struct file *f, uint64 addr, int n)
 }
 
 
+// Write to file f.
+// addr is a user virtual address.
+int
+write2file(struct file *f, uint64 addr, int n, uint off)
+{
+  int r, ret = 0;
+
+  if(f->type == FD_INODE){
+    // write a few blocks at a time to avoid exceeding
+    // the maximum log transaction size, including
+    // i-node, indirect block, allocation blocks,
+    // and 2 blocks of slop for non-aligned writes.
+    // this really belongs lower down, since writei()
+    // might be writing a device like the console.
+    int max = ((MAXOPBLOCKS-1-1-2) / 2) * BSIZE;
+    int i = 0;
+    while(i < n){
+      int n1 = n - i;
+      if(n1 > max)
+        n1 = max;
+
+      begin_op();
+      ilock(f->ip);
+      if ((r = writei(f->ip, 1, addr + i, off, n1)) > 0)
+        off += r;
+      iunlock(f->ip);
+      end_op();
+
+      if(r != n1){
+        // error from writei
+        break;
+      }
+      i += r;
+    }
+    // ret = (i == n ? n : -1);
+    ret = i;
+  }
+  return ret;
+}
+
+
 uint64
 filemmap(struct file *f, int len, int prot, int flags)
 {
@@ -217,12 +259,14 @@ struct vma *
 get_vma(uint64 va) {
   struct vma *vp = 0;
   struct proc *p = myproc();
+  acquire(&p->lock);
   for (int i = 0; i < p->vma_count; i++) {
     if (va >= p->vmasp[i]->addr && va < p->vmasp[i]->addr + p->vmasp[i]->len) {
       vp = p->vmasp[i];
       break;
     }
   }
+  release(&p->lock);
   return vp;
 }
 
@@ -230,19 +274,13 @@ int
 remove_vma(struct vma *v)
 {
   struct proc *p = myproc();
-  acquire(&p->lock);
+
   int i = 0;
-  for (i = 0; i < MAXMMAP; i++) {
-    if (&p->vmas[i] == v) {
-      break;
-    }
-  }
-  if (i == MAXMMAP) {
-    release(&p->lock);
-    return -1;
-  }
-  p->vmas[i].alloc = 0;
-  
+
+  fileclose(v->f);
+  acquire(&p->lock);
+  v->alloc = 0;
+  v->f = 0;
   for (i = 0; i < p->vma_count; i++) {
     if (v == p->vmasp[i]) {
       break;
@@ -254,6 +292,7 @@ remove_vma(struct vma *v)
   }
 
   p->vmasp[i] = p->vmasp[p->vma_count - 1];
+  p->vmasp[p->vma_count - 1] = 0;
   p->vma_count--;
   release(&p->lock);
   return 0;
@@ -264,18 +303,55 @@ fileunmap(uint64 addr, int len)
 {
   struct proc *p = myproc();
   struct vma *v = get_vma(addr);
-  if (v == 0 || len > v->len || addr % PGSIZE != 0 || len % PGSIZE != 0) {
-    printf("invalid input.\n");
+  if (v == 0) {
+    printf("no vma is found.\n");
     return -1;
   }
+  if (addr % PGSIZE != 0 || len % PGSIZE != 0) {
+    printf("invalid input. addr: %p, len: %d\n", addr, len);
+    return -1;
+  }
+  if (addr + len > v->addr + v->len) {
+    printf("adjust length.\n");
+    len = v->addr + v->len - addr;
+  }
+
+  if (v->flags & MAP_SHARED) {
+    uint64 cur_addr = 0;
+    uint off = 0;
+    int count = 0;
+    for (int i = 0; i < len / PGSIZE; i++) {
+      cur_addr = addr + i * PGSIZE;
+      off = cur_addr - v->addr;
+      pte_t *pte = walk(p->pagetable, cur_addr, 0);
+      if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0) {
+        continue;
+      }
+      if ((*pte & PTE_D) == 0) {
+        printf("page not dirty: %p\n", cur_addr);
+        continue;
+      }
+      printf("page is dirty: %p\n", cur_addr);
+      count = write2file(v->f, cur_addr, PGSIZE, off);
+      if (count != PGSIZE) {
+        printf("write2file failed %d != %d\n", count, PGSIZE);
+      }
+    }
+  }
+ 
+  uvmunmap(p->pagetable, addr, len / PGSIZE, 1);
+
   if (addr == v->addr && len == v->len) {
-    remove_vma(v);
-  } else if (addr == v->addr) {
-    // no need to lock, alloc prevents others from accessing this vma
-    v->addr = addr + v->len;
+    int rc = remove_vma(v);
+    if (rc) {
+      printf("remove_vma failed. rc = %d\n", rc);
+    }
   } else {
+    if (addr == v->addr) {
+      // no need to lock, alloc prevents others from accessing this vma
+      v->addr = v->addr + len;
+    }
     v->len = v->len - len;
   }
-  uvmunmap(p->pagetable, addr, len / PGSIZE, 1);
   return 0;
 }

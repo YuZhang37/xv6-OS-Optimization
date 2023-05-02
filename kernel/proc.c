@@ -363,6 +363,10 @@ exit(int status)
     }
   }
 
+  for (int i = 0; i < p->vma_count; i++) {
+    fileunmap(p->vmasp[i]->addr, p->vmasp[i]->len);
+  }
+
   begin_op();
   iput(p->cwd);
   end_op();

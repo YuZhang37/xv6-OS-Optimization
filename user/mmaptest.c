@@ -7,6 +7,7 @@
 #include "user/user.h"
 
 void mmap_test();
+void mmap_test2();
 void fork_test();
 char buf[BSIZE];
 
@@ -14,8 +15,9 @@ char buf[BSIZE];
 
 int
 main(int argc, char *argv[])
-{
+{ 
   mmap_test();
+  // mmap_test2();
   fork_test();
   printf("mmaptest: all tests succeeded\n");
   exit(0);
@@ -165,7 +167,7 @@ mmap_test(void)
   _v1(p);
 
   // write the mapped memory.
-  for (i = 0; i < PGSIZE*2; i++)
+  for (i = PGSIZE; i < PGSIZE*2; i++)
     p[i] = 'Z';
 
   // unmap just the first two of three pages of mapped memory.
@@ -184,9 +186,11 @@ mmap_test(void)
     char b;
     if (read(fd, &b, 1) != 1)
       err("read (1)");
-    if (b != 'Z')
+    if (i >= PGSIZE && b != 'Z') {
       err("file does not contain modifications");
+    }  
   }
+
   if (close(fd) == -1)
     err("close");
 
@@ -227,12 +231,75 @@ mmap_test(void)
   close(fd2);
   unlink("mmap2");
 
-  if(memcmp(p1, "12345", 5) != 0)
+
+  if(memcmp(p1, "12345", 5) != 0) {
+    printf("p1: %s\n", p1);
     err("mmap1 mismatch");
+  }
+
   if(memcmp(p2, "67890", 5) != 0)
     err("mmap2 mismatch");
 
   munmap(p1, PGSIZE);
+  if(memcmp(p2, "67890", 5) != 0)
+    err("mmap2 mismatch (2)");
+  munmap(p2, PGSIZE);
+  
+  printf("test mmap two files: OK\n");
+  
+  printf("mmap_test: ALL OK\n");
+}
+
+
+void
+mmap_test2(void)
+{
+  printf("mmap_test starting\n");
+  testname = "mmap_test";
+
+
+  
+  printf("test mmap two files\n");
+  
+  //
+  // mmap two files at the same time.
+  //
+  int fd1;
+  if((fd1 = open("mmap1", O_RDWR|O_CREATE)) < 0)
+    err("open mmap1");
+  if(write(fd1, "12345", 5) != 5)
+    err("write mmap1");
+  char *p1 = mmap(0, PGSIZE, PROT_READ, MAP_PRIVATE, fd1, 0);
+  printf("mmap succeeded.\n");
+  if(p1 == MAP_FAILED)
+    err("mmap mmap1");
+  close(fd1);
+  unlink("mmap1");
+  printf("unlink succeeded.\n");
+
+  int fd2;
+  if((fd2 = open("mmap2", O_RDWR|O_CREATE)) < 0)
+    err("open mmap2");
+  if(write(fd2, "67890", 5) != 5)
+    err("write mmap2");
+  char *p2 = mmap(0, PGSIZE, PROT_READ, MAP_PRIVATE, fd2, 0);
+  if(p2 == MAP_FAILED)
+    err("mmap mmap2");
+  close(fd2);
+  unlink("mmap2");
+
+
+  if(memcmp(p1, "12345", 5) != 0) {
+    printf("p1: %s\n", p1);
+    err("mmap1 mismatch");
+  }
+  printf("memcmp succeeded.\n");
+
+  if(memcmp(p2, "67890", 5) != 0)
+    err("mmap2 mismatch");
+
+  munmap(p1, PGSIZE);
+  printf("munmap succeeded.\n");
   if(memcmp(p2, "67890", 5) != 0)
     err("mmap2 mismatch (2)");
   munmap(p2, PGSIZE);

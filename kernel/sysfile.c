@@ -519,6 +519,12 @@ sys_mmap(void)
   if(argfd(4, 0, &f) < 0)
     return -1;
   argint(5, &offset);
+  if (flags & MAP_SHARED) {
+    if (prot & PROT_READ && !f->readable)
+      return -1;
+    if (prot & PROT_WRITE && !f->writable)
+      return -1;
+  }
   uint64 addr = (uint64) filemmap(f, len, prot, flags);
   return addr;
 }
