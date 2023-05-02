@@ -180,3 +180,41 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+
+uint64
+filemmap(struct file *f, int len, int prot, int flags)
+{
+  struct proc *p = myproc();
+  uint64 addr;
+  acquire(&p->lock);
+  if (p->vma_count == MAXMMAP || p->sz + len >= MAXVA) {
+    release(&p->lock);
+    printf("filemmap failed\n");
+    return -1;
+  }
+  addr = p->sz;
+  p->vmas[p->vma_count].addr = addr;
+  p->sz += len;
+  p->vmas[p->vma_count].f = f;
+  filedup(f);
+  p->vmas[p->vma_count].len = len;
+  p->vmas[p->vma_count].prot = prot;
+  p->vmas[p->vma_count].flags = flags;
+  p->vma_count++;
+  release(&p->lock);
+  return addr;
+}
+
+struct vma * 
+get_vma(uint64 va) {
+  struct vma *vp = 0;
+  struct proc *p = myproc();
+  for (int i = 0; i < p->vma_count; i++) {
+    if (va >= p->vmas[i].addr && va < p->vmas[i].addr + p->vmas[i].len) {
+      vp = &p->vmas[i];
+      break;
+    }
+  }
+  return vp;
+}
+

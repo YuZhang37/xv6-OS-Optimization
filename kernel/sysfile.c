@@ -508,11 +508,24 @@ sys_pipe(void)
 uint64
 sys_mmap(void)
 {
-  return -1;
+  // void *mmap(void *addr, int len, int prot, int flags, int fd, int offset);
+  uint64 p;
+  int len, prot, flags, offset;
+  struct file *f;
+  argaddr(0, &p);
+  argint(1, &len);
+  argint(2, &prot);
+  argint(3, &flags);
+  if(argfd(4, 0, &f) < 0)
+    return -1;
+  argint(5, &offset);
+  uint64 addr = (uint64) filemmap(f, len, prot, flags);
+  return addr;
 }
 
 uint64
 sys_munmap(void)
 {
+  // int munmap(void *addr, uint length);
   return -1;
 }

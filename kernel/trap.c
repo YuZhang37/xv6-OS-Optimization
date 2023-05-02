@@ -5,6 +5,12 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
+#include "fs.h"
+#include "sleeplock.h"
+#include "file.h"
+
+#define min(a, b) ((a) < (b) ? (a) : (b))
 
 struct spinlock tickslock;
 uint ticks;
@@ -29,6 +35,16 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+void
+return_err(char *message)
+{
+  struct proc *p = myproc();
+
+  printf("usertrap() %s: unexpected scause %p pid=%d\n", message, r_scause(), p->pid);
+  printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+  setkilled(p);
+  exit(-1);
+}
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -67,10 +83,43 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    setkilled(p);
+  } 
+  else if (r_scause() == 13) {
+
+    struct vma *v;
+    struct inode *ip;
+    uint64 va;
+    uint off;
+
+    v = get_vma(r_stval());
+    if (v == 0) {
+      return_err("no vma");
+    }else if (v->prot & PROT_READ && r_scause() == 13) {
+      printf("reading page fault: %p\n", r_stval());
+      ip = v->f->ip;
+      va = PGROUNDDOWN(r_stval());
+      off = va - v->addr;
+      // allocate len bytes and set up permissions
+      if (lazy_allocate(va, v->prot) < 0) {
+        return_err("lazy_allocate");
+      }
+      printf("reading page fault va: %p, off: %d\n", va, off);
+      ilock(ip);
+      int rc = readi(ip, 1, va, off, PGSIZE);
+      printf("reading page fault rc: %d\n", rc);
+      iunlock(ip);
+      ip = 0;
+    } 
+    // else if (v->prot & PROT_WRITE && r_scause() == 15) {
+      
+    // } 
+    else {
+      printf("other page fault: %p\n", r_stval());
+      return_err("other page falut");
+    }
+  }
+  else{
+    return_err("other");
   }
 
   if(killed(p))
@@ -217,5 +266,35 @@ devintr()
   } else {
     return 0;
   }
+}
+
+
+int
+lazy_allocate(uint64 va, int prot) 
+{ 
+  struct proc *p = myproc();
+  uint64 page_addr = PGROUNDDOWN(va);
+  char *mem;
+  int perm = PTE_U;
+  if (prot & PROT_READ) {
+    perm = perm | PTE_R;
+  }
+  if (prot & PROT_WRITE) {
+    perm = perm | PTE_W;
+  }
+  if (prot & PROT_EXEC) {
+    perm = perm | PTE_X;
+  }
+
+  mem = kalloc();
+  memset(mem, 0, PGSIZE);
+  if(mem == 0){
+    return -1;
+  }
+  if(mappages(p->pagetable, page_addr, PGSIZE, (uint64)mem, perm) != 0){
+    return -1;
+  }
+  
+  return 0;
 }
 
