@@ -194,9 +194,9 @@ filemmap(struct file *f, int len, int prot, int flags)
   }
   int i = 0;
   for (i = 0; i < MAXMMAP; i++) {
-    if (p->vmas[i].free == 0) {
+    if (p->vmas[i].alloc == 0) {
       p->vmasp[p->vma_count] = &p->vmas[i];
-      p->vmas[i].free = 1;
+      p->vmas[i].alloc = 1;
       break;
     }
   }
@@ -226,46 +226,56 @@ get_vma(uint64 va) {
   return vp;
 }
 
-// int
-// remove_vma(struct vma *v)
-// {
-//   struct proc *p = myproc();
-//   lock(p->lock);
-//   if (v == &p->vmas[p->vma_count]) {
-//     p->vma_count == 0;
-//     unlock(p->lock);
-//     return 0;
-//   }
-//   int i = 0;
-//   for (i = 0; i < v->vma_count; i++) {
-//     if (v == &p->vmas[i]) {
-//       break;
-//     }
-//   }
-//   if (i == v->vma_count) {
-//     return -1;
-//   }
-//   struct 
-// }
+int
+remove_vma(struct vma *v)
+{
+  struct proc *p = myproc();
+  acquire(&p->lock);
+  int i = 0;
+  for (i = 0; i < MAXMMAP; i++) {
+    if (&p->vmas[i] == v) {
+      break;
+    }
+  }
+  if (i == MAXMMAP) {
+    release(&p->lock);
+    return -1;
+  }
+  p->vmas[i].alloc = 0;
+  
+  for (i = 0; i < p->vma_count; i++) {
+    if (v == p->vmasp[i]) {
+      break;
+    }
+  }
+  if (i == p->vma_count) {
+    release(&p->lock);
+    return -1;
+  }
+
+  p->vmasp[i] = p->vmasp[p->vma_count - 1];
+  p->vma_count--;
+  release(&p->lock);
+  return 0;
+}
 
 uint64
 fileunmap(uint64 addr, int len)
 {
-  // struct proc *p = myproc();
-  // struct vma *v = get_vma(addr);
-  // if (v == 0 || len > v->len || addr % PGSIZE != 0 || len % PGSIZE != 0) {
-  //   printf("invalid input.\n")
-  //   return -1;
-  // }
-  // if (addr == vma->addr && len == vma->len) {
-  //   remove_vma(v);
-  // }
-  // if (addr == vma->addr) {
-  //   vma->addr = addr + vma->len;
-  // } else {
-  //   vma->len = vma->len - len;
-  // }
-  // uvmunmap(p->pagetable, addr, len / PGSIZE, 1);
-  return -1;
-
+  struct proc *p = myproc();
+  struct vma *v = get_vma(addr);
+  if (v == 0 || len > v->len || addr % PGSIZE != 0 || len % PGSIZE != 0) {
+    printf("invalid input.\n");
+    return -1;
+  }
+  if (addr == v->addr && len == v->len) {
+    remove_vma(v);
+  } else if (addr == v->addr) {
+    // no need to lock, alloc prevents others from accessing this vma
+    v->addr = addr + v->len;
+  } else {
+    v->len = v->len - len;
+  }
+  uvmunmap(p->pagetable, addr, len / PGSIZE, 1);
+  return 0;
 }
