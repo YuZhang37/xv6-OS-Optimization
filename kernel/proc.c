@@ -299,6 +299,13 @@ fork(void)
   }
   np->sz = p->sz;
 
+  //Copy vmas from parent to child
+  if (copy_vmas(p, np) < 0) {
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
+
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 

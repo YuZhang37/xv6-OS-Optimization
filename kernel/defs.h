@@ -36,6 +36,7 @@ int             filewrite(struct file*, uint64, int n);
 uint64          filemmap(struct file *f, int len, int prot, int flags);
 struct vma *    get_vma(uint64 va);
 uint64          fileunmap(uint64 addr, int len);
+int             copy_vmas(struct proc *p, struct proc *np);
 
 // fs.c
 void            fsinit(int);

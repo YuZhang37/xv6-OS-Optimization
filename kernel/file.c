@@ -328,10 +328,8 @@ fileunmap(uint64 addr, int len)
         continue;
       }
       if ((*pte & PTE_D) == 0) {
-        printf("page not dirty: %p\n", cur_addr);
         continue;
       }
-      printf("page is dirty: %p\n", cur_addr);
       count = write2file(v->f, cur_addr, PGSIZE, off);
       if (count != PGSIZE) {
         printf("write2file failed %d != %d\n", count, PGSIZE);
@@ -353,5 +351,19 @@ fileunmap(uint64 addr, int len)
     }
     v->len = v->len - len;
   }
+  return 0;
+}
+
+int
+copy_vmas(struct proc *p, struct proc *np)
+{
+  acquire(&p->lock);
+  np->vma_count = p->vma_count;
+  for (int i = 0; i < p->vma_count; i++) {
+    np->vmas[i] = *(p->vmasp[i]);
+    filedup(np->vmas[i].f);
+    np->vmasp[i] = &np->vmas[i];
+  }
+  release(&p->lock);
   return 0;
 }
