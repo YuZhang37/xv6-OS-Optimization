@@ -102,14 +102,10 @@ e1000_transmit(struct mbuf *m)
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
   //
-
-  // printf("e1000_transmit is called.\n");
+  if (m->len > DATA_MAX)
+    return -1;
   acquire(&e1000_lock);
   uint32 last = regs[E1000_TDT];
-  if ((last - regs[E1000_TDH]) >= TX_RING_SIZE) {
-    release(&e1000_lock);
-    return -1;
-  }
   struct tx_desc *tx_p = &tx_ring[last];
   if ((tx_p->status & E1000_TXD_STAT_DD) == 0) {
     release(&e1000_lock);
@@ -127,9 +123,12 @@ e1000_transmit(struct mbuf *m)
   tx_p->status = 0;
   tx_p->css = 0;
   tx_p->special = 0;
+
+  __sync_synchronize();
+  // set E1000_TDT will cause the device to transmit, 
+  // make sure the above set up is finished before setting TDT
   regs[E1000_TDT] = (last + 1) % TX_RING_SIZE;
   release(&e1000_lock);
-  // printf("e1000_transmit is finished.\n");
   return 0;
 }
 
@@ -142,32 +141,18 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
   //
-  // printf("e1000_recv is called.\n");
   acquire(&e1000_lock);
-  uint32 last = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
-  uint32 next = last;
+  uint32 next = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
   struct rx_desc *rx_p = &rx_ring[next];
-  // if ((rx_p->status & E1000_RXD_STAT_DD) == 0) {
-  //   printf("no data\n");
-  //   release(&e1000_lock);
-  //   return;
-  // }
-  int count = 0;
   while (1) {
-    // printf("next: %d\n", next);
-    // printf("EOP: %d\n", rx_p->status & E1000_RXD_STAT_EOP);
-    // printf("DD: %d\n", rx_p->status & E1000_RXD_STAT_DD);
-    // printf("length: %d\n", rx_p->length);
-    // for (int i = 0; i < rx_p->length; i++) {
-    //   printf("%d ", rx_mbufs[next]->buf[i]);
-    // }
-    // printf("message: %s\n", rx_mbufs[next]->buf);
-    if ((rx_p->status & E1000_RXD_STAT_DD) == 0 || (rx_p->status & E1000_RXD_STAT_DD) == 0) {
+    if ((rx_p->status & E1000_RXD_STAT_DD) == 0) {
       break;
     }
-    count++;
+
     struct mbuf *mp = rx_mbufs[next];
     mp->len = rx_p->length;
+    if (mp->len > MBUF_SIZE)
+      panic("e1000 len");
     memset(&rx_ring[next], 0, sizeof(struct rx_desc));
     rx_mbufs[next] = mbufalloc(0);
     if (!rx_mbufs[next])
@@ -180,10 +165,7 @@ e1000_recv(void)
     rx_p = &rx_ring[next];
   }
   regs[E1000_RDT] = (next + RX_RING_SIZE - 1) % RX_RING_SIZE;
-  printf("n: %d\n", next);
-  printf("c: %d\n", count);
   release(&e1000_lock);
-  // printf("e1000_recv is finished.\n");
 }
 
 void
@@ -193,6 +175,6 @@ e1000_intr(void)
   // without this the e1000 won't raise any
   // further interrupts.
   regs[E1000_ICR] = 0xffffffff;
-
+  printf("cpu id: %d\n", cpuid());
   e1000_recv();
 }
