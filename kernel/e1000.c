@@ -102,7 +102,34 @@ e1000_transmit(struct mbuf *m)
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
   //
-  
+
+  // printf("e1000_transmit is called.\n");
+  acquire(&e1000_lock);
+  uint32 last = regs[E1000_TDT];
+  if ((last - regs[E1000_TDH]) >= TX_RING_SIZE) {
+    release(&e1000_lock);
+    return -1;
+  }
+  struct tx_desc *tx_p = &tx_ring[last];
+  if ((tx_p->status & E1000_TXD_STAT_DD) == 0) {
+    release(&e1000_lock);
+    return -1;
+  }
+  if (tx_mbufs[last] != 0) {
+    mbuffree(tx_mbufs[last]);
+  }
+    
+  tx_mbufs[last] = m;
+  tx_p->addr = (uint64)m->head;
+  tx_p->length = m->len;
+  tx_p->cso = 0;
+  tx_p->cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
+  tx_p->status = 0;
+  tx_p->css = 0;
+  tx_p->special = 0;
+  regs[E1000_TDT] = (last + 1) % TX_RING_SIZE;
+  release(&e1000_lock);
+  // printf("e1000_transmit is finished.\n");
   return 0;
 }
 
@@ -115,6 +142,48 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
   //
+  // printf("e1000_recv is called.\n");
+  acquire(&e1000_lock);
+  uint32 last = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+  uint32 next = last;
+  struct rx_desc *rx_p = &rx_ring[next];
+  // if ((rx_p->status & E1000_RXD_STAT_DD) == 0) {
+  //   printf("no data\n");
+  //   release(&e1000_lock);
+  //   return;
+  // }
+  int count = 0;
+  while (1) {
+    // printf("next: %d\n", next);
+    // printf("EOP: %d\n", rx_p->status & E1000_RXD_STAT_EOP);
+    // printf("DD: %d\n", rx_p->status & E1000_RXD_STAT_DD);
+    // printf("length: %d\n", rx_p->length);
+    // for (int i = 0; i < rx_p->length; i++) {
+    //   printf("%d ", rx_mbufs[next]->buf[i]);
+    // }
+    // printf("message: %s\n", rx_mbufs[next]->buf);
+    if ((rx_p->status & E1000_RXD_STAT_DD) == 0 || (rx_p->status & E1000_RXD_STAT_DD) == 0) {
+      break;
+    }
+    count++;
+    struct mbuf *mp = rx_mbufs[next];
+    mp->len = rx_p->length;
+    memset(&rx_ring[next], 0, sizeof(struct rx_desc));
+    rx_mbufs[next] = mbufalloc(0);
+    if (!rx_mbufs[next])
+      panic("e1000");
+    rx_ring[next].addr = (uint64) rx_mbufs[next]->head;
+    release(&e1000_lock);
+    net_rx(mp);
+    acquire(&e1000_lock);
+    next = (next + 1) % RX_RING_SIZE;
+    rx_p = &rx_ring[next];
+  }
+  regs[E1000_RDT] = (next + RX_RING_SIZE - 1) % RX_RING_SIZE;
+  printf("n: %d\n", next);
+  printf("c: %d\n", count);
+  release(&e1000_lock);
+  // printf("e1000_recv is finished.\n");
 }
 
 void

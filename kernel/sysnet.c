@@ -113,7 +113,7 @@ sockread(struct sock *si, uint64 addr, int n)
   struct proc *pr = myproc();
   struct mbuf *m;
   int len;
-
+  // printf("sock read\n");
   acquire(&si->lock);
   while (mbufq_empty(&si->rxq) && !pr->killed) {
     sleep(&si->rxq, &si->lock);
@@ -133,12 +133,14 @@ sockread(struct sock *si, uint64 addr, int n)
     return -1;
   }
   mbuffree(m);
+  // printf("sock read finished\n");
   return len;
 }
 
 int
 sockwrite(struct sock *si, uint64 addr, int n)
 {
+  // printf("sock write\n");
   struct proc *pr = myproc();
   struct mbuf *m;
 
@@ -151,6 +153,7 @@ sockwrite(struct sock *si, uint64 addr, int n)
     return -1;
   }
   net_tx_udp(m, si->raddr, si->lport, si->rport);
+  // printf("sock write finished\n");
   return n;
 }
 
