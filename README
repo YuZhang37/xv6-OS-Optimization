@@ -15,6 +15,41 @@ Lab 7: Multithreading
 Lab 8: Lock
 Lab 9: File system
 Lab 10: mmap
+
 Lab 11: network driver
 (https://github.com/YuZhang37/xv6-labs-2022/tree/net)
+For this lab, a simple network driver is implemented for NIC E1000 to transmit and receive packets.
+The difficulty for this lab is that we need to write code to coopearate with the hardware E1000. 
+E1000 maintains two seperate circular queues(rings) for transmitting and receiving, with pre-defined fields on the elements.
+Benefits of the rings:
+1. The rings enable DMA (direct memory access) to reduce the overhead of transfer data from E1000 to memory and vice versa.
+2. Since the software may processing data in a different rate with E1000, the rings can help decouple the operations of driver and E1000, like a producer/consumer model. 
+
+There are two types of parallelism we need to handle:
+1. software/hardware parallelism: 
+Both the driver and E1000 will manipulate rings. A bit called DD is used to indicate whether E1000 has successfully operated on the ring element.
+2. software/sofware parallelism:
+There are potentially many cpus or processes maninpulate the rings concurrently. A lock is required to protect the rings.
+
+For transmitting, the ring structure is shown below.
+     data   data   
+----+-----+------+-----+-----+----+
+      ^             ^
+    head           tail       
+Each element of transmit ring, has a pointer to a memory locaction, which will be used to store the data to be transmitted, and many metadata fields. The fields we are concerned about is RS and DD. Whenever E1000 finishes the transmit of element, DD field will be set to 1.
+To help transmit, two registers needs to set up, the transmit head, and the transmit tail. The transmit head will move forward by 1, each time E1000  finishes a transmit. The transmit tail points to an empty spot the driver can use to put the tranmitting packet, and moves forward by 1 after using up the last one. The queue is circular, both head and tail can wrap up back to the start of the ring.
+A lock is needed to prevent concurrent writes to the transmit ring from multiple processes.
+
+For receiving, the ring structure is shown below.
+     data   data   data
+----+-----+------+-----+-----+----+
+  ^                 ^
+ tail              head  
+Tail points to the last element the driver has processed, the head points to the latest element E1000 receives.
+The process of receving packets is more involved. When E1000 receives a packet, it will generate an interrupt. One of the CPUs will handle the interrupt. When E1000 sends out a packet arrival interrupt, it will disable the interrupt. To receive further interrupts, we need to enable it in the interrupt handler. The CPU which handles the interrupt will disable all interrupts to itself. During the handling process, more data may be received by E1000, so we need to keep processing receiving packets until we reach the head. A lock is used to prevent multiple CPUs from handling the following interrupts which may be processing by another CPU. Multiple CPUs handling the receiving won't have any benefit, it will actually degrade the performance due to the spin locks. One edge case which needs to handle with locks on receving queue is ARP. For an arp packet, it goes to IP->ARP->ETH transmit, where the transmit will acquire the lock again if we use the same lock for E1000 receiving and transmitting. (If E1000 can somehow synchronize the multification on tail register, then the lock is not needed at all, which seems like the situation on E1000.)
+
+The registers of the net work drivers are memroy-mapped to some memory addresses. We can modify them just like modify normal memory data. But some features distinguish them from the normal memory data. 
+1. Writing to those addresses result to data sending to E1000 via slower PCI bus.
+2. Writing to some addresses may have side effects and the order of writing to those addresses matter. For example, writing to DD bit of the transmit element will enable E1000 to transmit that data. So we need to finish all the data setup before writing to DD bit. And we also need to set up a barrier to prevent the compiler from reordering the exection for optimization.
+
 *Lab 12: CFS_scheduler
