@@ -47,3 +47,111 @@ You will need a RISC-V "newlib" tool chain from
 https://github.com/riscv/riscv-gnu-toolchain, and qemu compiled for
 riscv64-softmmu.  Once they are installed, and in your shell
 search path, you can run "make qemu".
+
+
+For this lab, we need to add two system calls:
+1. void *mmap(void *addr, size_t length, int prot, int flags,
+           int fd, off_t offset);
+2. munmap(addr, length)
+
+Both syscalls are mirrored from Linux mmap and munmap. This lab only 
+implements mmap and munmap for mapping files to user processes. File system 
+provides processes with basic support, like fread, fwrite, and fseek, etc. With
+mmap and munmap, user processes will have a more convient way to manipulate file
+content just like manipulate normal memory.
+
+To support mmap, VMA (Virtual memroy area) is needed to bookkeep the information 
+on the file mapped to the process. Each process has a pre-defined fixed-size 
+array of VMAs. Whenever a file is maped, the kernel will find an unused VMA to 
+be allocated. If a process runs out of its VMAs, an error will return to the user.
+
+VMA:
++-------------+
+| file *f     |
++-------------+
+| uint64 addr |
++-------------+
+| int len     |
++-------------+
+| int prot    |
++-------------+
+| int flags   |
++-------------+
+| int alloc   |
++-------------+
+
+VMA includes a pointer to the file, the start address of the memory mapping the 
+file, the length of mapped file, the protection info and flags.
+
+One of the challenges is to implement lazy memory allocation. This feature 
+enables mmap return instantly, which can be helpful in the case of large files.
+
+Lazy memory allocation:
+Mmap doesn't directly allocate memory for the mmaped files, it will reserve a range
+of addresses, and returns to user space. Whenever the user needs to access the mmaped
+memory, a fault page will happen. For load page fault, register scause will be set
+to 13 and register stval stores the faulting virtual address. 
+We check if this address belongs to any VMA, if so, we can allocate a page by reading one corresponding block of the file.
+When mmapped memory is accessed, it's always read before writing to it. So we won't have
+to handle store page fault (15).
+
+The proper permissions on the newly allocated page needs to be set:
+V-bit and  U-bit is set.
+VMA: 
+    PROT_READ => R-bit is set
+    PROT_WRITE => W-bit is set
+    PROT_NONE => none
+
+
+xv6 process memory layout:
++--------------+
+| free memory  | 
+|    ...       | 
++--------------+
+| heap         |
++--------------+
+| stack        |
++--------------+
+| static       |
++--------------+
+
+after lazy allocation with mmap:
++--------------+
+| free memory  | 
+|    ...       | 
++--------------+
+| reserved VAs |  <= a corresponding VMA will be allocated to bookkeep the metadata
++--------------+
+| heap         |
++--------------+
+| stack        |
++--------------+
+| static       |
++--------------+
+
+mmap:
+Add the following VMA-related fields to struct proc. The file being mmapped must
+be incremented by on their reference count to avoid the file struct being freed
+while being used by some mmapped processes. When a process is forked, the child
+process will have copy all the VMAs from its parent, but the physical page mmaped
+are different in this implemtation. (which can be optimized by using the same physical
+memory on parent and child processes, it will enable them to see the updates 
+from each other.)
+
++----------------+
+| ...            |
++----------------+
+| VMA vmas[16]   |
++----------------+
+| VMA* vmasp[16] |
++----------------+
+| uint vma_count |
++----------------+
+
+munmap:
+The unmmap always starts from the start or the end of an VMA. We only need to update
+the length of VMA and the starting position. If the entire VMA is removed, then we
+need to decrement the reference count of the corresponding file. If the VMA has flags
+set to be MAP_SHARED, the modified page is written back to disk. It is done
+by going through all the pages needed to be freed and check if the dirty bit is set.
+On the other hand, if VMA is privately mmaped, the changes are discarded.
